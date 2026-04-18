@@ -153,8 +153,8 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
       try {
         const userCredential = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
         user = userCredential.user;
-        // Ensure demo user is always premium
-        await setDoc(doc(db, 'users', user.uid), { plan: 'premium' }, { merge: true });
+        // Ensure demo user is always premium and has no opening balance offset to match seeded £258
+        await setDoc(doc(db, 'users', user.uid), { plan: 'premium', openingBalance: 0 }, { merge: true });
       } catch (err: any) {
         if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
           const userCredential = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
