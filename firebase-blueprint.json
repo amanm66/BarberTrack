@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "User profile information including their subscription plan.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique identifier." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "plan": { "type": "string", "enum": ["basic", "premium"], "description": "The user's subscription plan." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user signed up." },
+        "premiumSince": { "type": "string", "format": "date-time", "description": "When the user upgraded to premium." }
+      },
+      "required": ["uid", "email", "plan"]
+    },
+    "Sale": {
+      "title": "Sale Record",
+      "description": "A record of a single service sale.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The ID of the user who made the sale." },
+        "serviceType": { "type": "string", "description": "The type of service (e.g., haircut, beard)." },
+        "paymentMethod": { "type": "string", "enum": ["cash", "card"], "description": "How the customer paid." },
+        "amount": { "type": "number", "description": "The amount charged for the service." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the sale occurred." }
+      },
+      "required": ["uid", "serviceType", "paymentMethod", "amount", "timestamp"]
+    },
+    "Suggestion": {
+      "title": "Feature Suggestion",
+      "description": "A feature suggestion submitted by a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The ID of the user who submitted the suggestion." },
+        "suggestion": { "type": "string", "description": "The text of the suggestion." },
+        "timestamp": { "type": "string", "format": "date-time", "description": "When the suggestion was submitted." }
+      },
+      "required": ["uid", "suggestion", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "Stores user profile data."
+    },
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Stores all sales records."
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": "Suggestion",
+      "description": "Stores feature suggestions."
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "name": "BarberTrack",
+  "description": "A simple sales tracking SaaS for UK barbers to monitor services, payments, and revenue performance.",
+  "requestFramePermissions": []
+}

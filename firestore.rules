@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required) - The user's unique identifier.
+    //   - email: string (required) - The user's email address.
+    //   - plan: string (required, enum: ["basic", "premium"]) - The user's subscription plan.
+    //   - createdAt: timestamp (required) - When the user signed up.
+    //
+    // Collection: sales
+    // Document ID: {saleId}
+    // Fields:
+    //   - uid: string (required) - The ID of the user who made the sale.
+    //   - serviceType: string (required) - The type of service (e.g., haircut, beard).
+    //   - paymentMethod: string (required, enum: ["cash", "card"]) - How the customer paid.
+    //   - amount: number (required) - The amount charged for the service.
+    //   - timestamp: timestamp (required) - When the sale occurred.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'plan', 'createdAt']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince']) &&
+             data.uid is string &&
+             data.email is string && isValidEmail(data.email) &&
+             data.plan in ['basic', 'premium'] &&
+             (!('currency' in data) || (data.currency is string && data.currency.size() == 3)) &&
+             (!('premiumSince' in data) || data.premiumSince is timestamp || data.premiumSince == null) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidSale(data) {
+      return hasRequiredFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp']) &&
+             hasOnlyAllowedFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp', 'notes']) &&
+             data.uid is string &&
+             data.serviceType is string && data.serviceType.size() > 0 && data.serviceType.size() < 100 &&
+             data.paymentMethod in ['cash', 'card'] &&
+             data.amount is number && data.amount >= 0 &&
+             data.timestamp is timestamp &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
+    }
+
+    function isValidSuggestion(data) {
+      return hasRequiredFields(['uid', 'suggestion', 'timestamp']) &&
+             hasOnlyAllowedFields(['uid', 'suggestion', 'timestamp']) &&
+             data.uid is string &&
+             data.suggestion is string && data.suggestion.size() > 0 && data.suggestion.size() <= 2000 &&
+             data.timestamp is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin());
+      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
+                        (request.resource.data.plan == resource.data.plan || request.resource.data.plan == 'premium' || request.resource.data.plan == 'basic') && 
+                        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)) || isAdmin();
+    }
+
+    match /sales/{saleId} {
+      // Standard read rule: User can only see documents where their UID matches the 'uid' field
+      // Basic users can only read sales from the last 31 days
+      allow read: if isAuthenticated() && (isAdmin() || (resource.data.uid == request.auth.uid && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.plan == 'premium' ||
+        resource.data.timestamp >= request.time - duration.value(31, 'd')
+      )));
+      
+      allow create: if isAuthenticated() && isValidSale(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isDocOwner() && isValidSale(request.resource.data) && uidNotModified();
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /suggestions/{suggestionId} {
+      allow read: if isAuthenticated() && (isAdmin() || resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated() && isValidSuggestion(request.resource.data) && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuthenticated() && isDocOwner() && isValidSuggestion(request.resource.data) && uidNotModified();
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+  }
+}
