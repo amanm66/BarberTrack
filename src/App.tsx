@@ -171,7 +171,7 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
 
           // Seed some demo data
           const demoSales = [
-            { serviceType: 'Adult Haircut', amount: 91, paymentMethod: 'card', daysAgo: 0 },
+            { serviceType: 'Adult Haircut', amount: 90, paymentMethod: 'card', daysAgo: 0 },
             { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 1 },
             { serviceType: 'Hair Color', amount: 65, paymentMethod: 'card', daysAgo: 2 },
             { serviceType: 'Adult Haircut + Beard Trim', amount: 35, paymentMethod: 'card', daysAgo: 2 },
