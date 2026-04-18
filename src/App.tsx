@@ -110,7 +110,6 @@ interface UserProfile {
   email: string;
   plan: 'basic' | 'premium';
   currency?: string;
-  openingBalance?: number;
   premiumSince?: Timestamp | null;
   createdAt: Timestamp;
   role?: string;
@@ -153,47 +152,66 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
       try {
         const userCredential = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
         user = userCredential.user;
-        // Ensure demo user is always premium and has no opening balance offset to match seeded £258
-        await setDoc(doc(db, 'users', user.uid), { plan: 'premium', openingBalance: 0 }, { merge: true });
       } catch (err: any) {
         if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
           const userCredential = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
           user = userCredential.user;
-          
-          // Create profile
-          await setDoc(doc(db, 'users', user.uid), {
-            uid: user.uid,
-            email: user.email,
-            plan: 'premium',
-            currency: 'GBP',
-            createdAt: serverTimestamp()
-          });
-
-          // Seed some demo data
-          const demoSales = [
-            { serviceType: 'Adult Haircut', amount: 90, paymentMethod: 'card', daysAgo: 0 },
-            { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 1 },
-            { serviceType: 'Hair Color', amount: 65, paymentMethod: 'card', daysAgo: 2 },
-            { serviceType: 'Adult Haircut + Beard Trim', amount: 35, paymentMethod: 'card', daysAgo: 2 },
-            { serviceType: 'Shave', amount: 20, paymentMethod: 'cash', daysAgo: 3 },
-            { serviceType: 'Kids Haircut', amount: 18, paymentMethod: 'card', daysAgo: 4 },
-            { serviceType: 'Headshave', amount: 15, paymentMethod: 'cash', daysAgo: 5 },
-          ];
-
-          for (const s of demoSales) {
-            const timestamp = Timestamp.fromDate(subDays(new Date(), s.daysAgo));
-            await addDoc(collection(db, 'sales'), {
-              uid: user.uid,
-              serviceType: s.serviceType,
-              amount: s.amount,
-              paymentMethod: s.paymentMethod,
-              timestamp
-            });
-          }
         } else {
           throw err;
         }
       }
+
+      // Ensure demo user is always premium and has a profile
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        email: user.email,
+        plan: 'premium',
+        currency: 'GBP',
+        createdAt: serverTimestamp()
+      }, { merge: true });
+
+      // Clear existing demo sales first to ensure fresh data
+      const existingSalesQuery = query(collection(db, 'sales'), where('uid', '==', user.uid));
+      const existingSalesSnapshot = await getDocs(existingSalesQuery);
+      for (const d of existingSalesSnapshot.docs) {
+        await deleteDoc(d.ref);
+      }
+
+      // Seed fresh demo data summing to 258
+      const demoSales = [
+        { serviceType: 'Adult Haircut', amount: 10, paymentMethod: 'card', daysAgo: 0 },
+        { serviceType: 'Adult Haircut', amount: 10, paymentMethod: 'card', daysAgo: 0 },
+        { serviceType: 'Beard Trim', amount: 10, paymentMethod: 'card', daysAgo: 1 },
+        { serviceType: 'Beard Trim', amount: 10, paymentMethod: 'card', daysAgo: 1 },
+        { serviceType: 'Kids Haircut', amount: 10, paymentMethod: 'card', daysAgo: 2 },
+        { serviceType: 'Kids Haircut', amount: 10, paymentMethod: 'card', daysAgo: 2 },
+        { serviceType: 'Shave', amount: 10, paymentMethod: 'card', daysAgo: 3 },
+        { serviceType: 'Headshave', amount: 10, paymentMethod: 'card', daysAgo: 3 },
+        { serviceType: 'Hair Color', amount: 10, paymentMethod: 'card', daysAgo: 4 },
+        { serviceType: 'Adult Haircut', amount: 16, paymentMethod: 'card', daysAgo: 4 },
+        { serviceType: 'Adult Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 5 },
+        { serviceType: 'Adult Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 5 },
+        { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 6 },
+        { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 6 },
+        { serviceType: 'Kids Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 7 },
+        { serviceType: 'Kids Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 7 },
+        { serviceType: 'Shave', amount: 15, paymentMethod: 'cash', daysAgo: 8 },
+        { serviceType: 'Headshave', amount: 15, paymentMethod: 'cash', daysAgo: 8 },
+        { serviceType: 'Hair Color', amount: 15, paymentMethod: 'cash', daysAgo: 9 },
+        { serviceType: 'Adult Haircut', amount: 17, paymentMethod: 'cash', daysAgo: 9 },
+      ];
+
+      for (const s of demoSales) {
+        const timestamp = Timestamp.fromDate(subDays(new Date(), s.daysAgo));
+        await addDoc(collection(db, 'sales'), {
+          uid: user.uid,
+          serviceType: s.serviceType,
+          amount: s.amount,
+          paymentMethod: s.paymentMethod,
+          timestamp
+        });
+      }
+
       onAuthSuccess();
     } catch (err: any) {
       setError('Demo mode failed: ' + err.message);
@@ -560,10 +578,7 @@ const Dashboard = ({
   onDeleteSale: (id: string) => Promise<void>;
 }) => {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
-  const salesTotal = sales.reduce((acc, sale) => acc + sale.amount, 0);
-  const openingBalance = profile?.openingBalance || 0;
-  const totalRevenue = salesTotal + openingBalance;
-
+  const totalSales = sales.reduce((acc, sale) => acc + sale.amount, 0);
   const cashSales = sales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount, 0);
   const cardSales = sales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount, 0);
 
@@ -572,16 +587,13 @@ const Dashboard = ({
     sales.forEach(s => {
       counts[s.serviceType] = (counts[s.serviceType] || 0) + s.amount;
     });
-    if (openingBalance > 0) {
-      counts['Opening Balance'] = (counts['Opening Balance'] || 0) + openingBalance;
-    }
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [sales, openingBalance]);
+  }, [sales]);
 
   const [showAllSales, setShowAllSales] = useState(false);
   const displayedSales = showAllSales ? sales : sales.slice(0, 5);
 
-  const COLORS = ['#5A5A40', '#8E8E6E', '#C2C2A3', '#E6E6D6', '#A3A375', '#D4D4D4'];
+  const COLORS = ['#5A5A40', '#8E8E6E', '#C2C2A3', '#E6E6D6', '#A3A375'];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -594,7 +606,7 @@ const Dashboard = ({
             </div>
           </div>
           <p className="text-gray-500 text-sm font-medium">Total Revenue</p>
-          <h3 className="text-3xl font-bold text-[#1A1A1A]">{formatCurrency(totalRevenue, profile?.currency)}</h3>
+          <h3 className="text-3xl font-bold text-[#1A1A1A]">{formatCurrency(totalSales, profile?.currency)}</h3>
         </div>
 
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
@@ -1319,16 +1331,10 @@ const Suggestions = ({ profile }: { profile: UserProfile | null }) => {
   );
 };
 
-const Billing = ({ profile, onDowngrade, onUpdateCurrency, onUpdateOpeningBalance }: { 
-  profile: UserProfile | null, 
-  onDowngrade: () => void, 
-  onUpdateCurrency: (currency: string) => void,
-  onUpdateOpeningBalance: (amount: number) => void
-}) => {
+const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProfile | null, onDowngrade: () => void, onUpdateCurrency: (currency: string) => void }) => {
   const [exchangeRate, setExchangeRate] = useState(1);
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [tempOpeningBalance, setTempOpeningBalance] = useState(profile?.openingBalance?.toString() || '0');
 
   useEffect(() => {
     const fetchRate = async () => {
@@ -1406,40 +1412,18 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency, onUpdateOpeningBalanc
       {/* Settings Section */}
       <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm">
         <h2 className="text-2xl font-serif mb-6">App Settings</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="max-w-sm">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Display Currency</label>
-            <select 
-              value={profile?.currency || 'GBP'}
-              onChange={(e) => onUpdateCurrency(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none bg-white"
-            >
-              {WORLD_CURRENCIES.map(c => (
-                <option key={c.code} value={c.code}>{c.label}</option>
-              ))}
-            </select>
-            <p className="text-xs text-gray-500 mt-2">This currency will be used across all your dashboards and reports.</p>
-          </div>
-
-          <div className="max-w-sm">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Opening Balance Adjustment</label>
-            <div className="flex gap-2">
-              <input 
-                type="number"
-                value={tempOpeningBalance}
-                onChange={(e) => setTempOpeningBalance(e.target.value)}
-                className="flex-1 px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none bg-white"
-                placeholder="0"
-              />
-              <button 
-                onClick={() => onUpdateOpeningBalance(parseFloat(tempOpeningBalance) || 0)}
-                className="px-6 py-3 bg-[#5A5A40] text-white rounded-xl font-medium hover:bg-[#4A4A30] transition-all"
-              >
-                Update
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Adjust your total revenue (e.g. for sales made before using the app).</p>
-          </div>
+        <div className="max-w-sm">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Display Currency</label>
+          <select 
+            value={profile?.currency || 'GBP'}
+            onChange={(e) => onUpdateCurrency(e.target.value)}
+            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none bg-white"
+          >
+            {WORLD_CURRENCIES.map(c => (
+              <option key={c.code} value={c.code}>{c.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-500 mt-2">This currency will be used across all your dashboards and reports.</p>
         </div>
       </div>
 
@@ -2051,16 +2035,6 @@ export default function App() {
     }
   };
 
-  const handleUpdateOpeningBalance = async (openingBalance: number) => {
-    if (!user) return;
-    try {
-      await setDoc(doc(db, 'users', user.uid), { openingBalance }, { merge: true });
-      setProfile(prev => prev ? { ...prev, openingBalance } : null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
-    }
-  };
-
   if (loading || isProcessingLink) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0]">
@@ -2254,7 +2228,7 @@ export default function App() {
           {activeTab === 'dashboard' && <Dashboard sales={sales} profile={profile} onEditSale={handleEditSale} onDeleteSale={handleDeleteSale} />}
           {activeTab === 'entry' && <SalesEntry onAdd={handleAddSale} profile={profile} />}
           {activeTab === 'reports' && <Reports sales={sales} profile={profile} />}
-          {activeTab === 'billing' && <Billing profile={profile} onDowngrade={handleDowngrade} onUpdateCurrency={handleUpdateCurrency} onUpdateOpeningBalance={handleUpdateOpeningBalance} />}
+          {activeTab === 'billing' && <Billing profile={profile} onDowngrade={handleDowngrade} onUpdateCurrency={handleUpdateCurrency} />}
           {activeTab === 'suggestions' && <Suggestions profile={profile} />}
           {activeTab === 'admin' && isAdminUser && <AdminDashboard />}
         </div>
