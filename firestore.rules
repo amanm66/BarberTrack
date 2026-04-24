@@ -106,9 +106,10 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin());
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin()) && (request.resource.data.plan == 'basic' || isAdmin());
       allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
-                        (request.resource.data.plan == resource.data.plan || request.resource.data.plan == 'premium' || request.resource.data.plan == 'basic') && 
+                        request.resource.data.plan == resource.data.plan &&
+                        (!('premiumSince' in request.resource.data) || request.resource.data.premiumSince == resource.data.premiumSince) &&
                         (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)) || isAdmin();
     }
 

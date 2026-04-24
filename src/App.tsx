@@ -30,6 +30,7 @@ import {
   getDocs,
   updateDoc,
   deleteDoc,
+  writeBatch,
   Timestamp,
   orderBy,
   limit
@@ -62,7 +63,11 @@ import {
   Crop,
   CircleDashed,
   Zap,
-  Users
+  Users,
+  Target,
+  Mail,
+  ArrowUpCircle,
+  Plus
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -94,6 +99,7 @@ interface Sale {
   serviceType: string;
   paymentMethod: 'cash' | 'card';
   amount: number;
+  tip?: number;
   timestamp: Timestamp;
   notes?: string;
 }
@@ -110,6 +116,8 @@ interface UserProfile {
   email: string;
   plan: 'basic' | 'premium';
   currency?: string;
+  weeklyGoal?: number;
+  customServices?: string[];
   premiumSince?: Timestamp | null;
   createdAt: Timestamp;
   role?: string;
@@ -121,6 +129,7 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [linkSent, setLinkSent] = useState(false);
+  const [mode, setMode] = useState<'landing' | 'signin'>('landing');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,8 +153,14 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   const handleDemoMode = async () => {
     setError('');
     setLoading(true);
-    const demoEmail = 'demo@barbertrack.uk';
-    const demoPassword = 'password123';
+    const demoEmail = (import.meta as any).env.VITE_DEMO_EMAIL;
+    const demoPassword = (import.meta as any).env.VITE_DEMO_PASSWORD;
+    
+    if (!demoEmail || !demoPassword) {
+      setError("Demo credentials are not configured in your environment.");
+      setLoading(false);
+      return;
+    }
     
     try {
       let user;
@@ -170,12 +185,27 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
         createdAt: serverTimestamp()
       }, { merge: true });
 
-      // Clear existing demo sales first to ensure fresh data
+      // Clear existing demo sales first to ensure fresh data using a batch
       const existingSalesQuery = query(collection(db, 'sales'), where('uid', '==', user.uid));
       const existingSalesSnapshot = await getDocs(existingSalesQuery);
+      
+      const batches = [];
+      let currentBatch = writeBatch(db);
+      let opCount = 0;
+
       for (const d of existingSalesSnapshot.docs) {
-        await deleteDoc(d.ref);
+        currentBatch.delete(d.ref);
+        opCount++;
+        if (opCount === 500) {
+          batches.push(currentBatch.commit());
+          currentBatch = writeBatch(db);
+          opCount = 0;
+        }
       }
+      if (opCount > 0) {
+        batches.push(currentBatch.commit());
+      }
+      await Promise.all(batches);
 
       // Seed fresh demo data summing to 258
       const demoSales = [
@@ -201,9 +231,11 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
         { serviceType: 'Adult Haircut', amount: 17, paymentMethod: 'cash', daysAgo: 9 },
       ];
 
+      const demoBatch = writeBatch(db);
       for (const s of demoSales) {
         const timestamp = Timestamp.fromDate(subDays(new Date(), s.daysAgo));
-        await addDoc(collection(db, 'sales'), {
+        const newSaleRef = doc(collection(db, 'sales'));
+        demoBatch.set(newSaleRef, {
           uid: user.uid,
           serviceType: s.serviceType,
           amount: s.amount,
@@ -211,6 +243,7 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
           timestamp
         });
       }
+      await demoBatch.commit();
 
       onAuthSuccess();
     } catch (err: any) {
@@ -219,6 +252,41 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
       setLoading(false);
     }
   };
+
+  if (mode === 'landing') {
+    return (
+      <div className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-lg bg-white rounded-[40px] shadow-xl overflow-hidden border border-gray-100 p-10 text-center animate-in zoom-in-95 duration-700">
+          <div className="w-20 h-20 bg-[#5A5A40] rounded-3xl flex items-center justify-center shadow-md transform -rotate-6 mx-auto mb-8">
+            <Scissors className="text-white w-10 h-10" />
+          </div>
+          <h1 className="text-4xl font-serif text-[#1A1A1A] mb-4">
+            Track every cut. Know your numbers.
+          </h1>
+          <p className="text-gray-500 mb-10 text-lg">
+            The simple, powerful tool for barbers to log sales, hit goals, and grow their business.
+          </p>
+          <div className="flex flex-col gap-4">
+            <button
+              onClick={handleDemoMode}
+              disabled={loading}
+              className="w-full bg-[#5A5A40] text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:bg-[#4A4A30] transition-all disabled:opacity-50"
+            >
+              {loading ? 'Starting Demo...' : 'Try Demo Mode'}
+            </button>
+            <button
+              onClick={() => setMode('signin')}
+              disabled={loading}
+              className="w-full bg-white text-[#5A5A40] border-2 border-gray-200 py-4 rounded-2xl font-bold text-lg hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-50"
+            >
+              Sign In
+            </button>
+          </div>
+          {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0] p-4">
@@ -295,28 +363,32 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
 
 const EditSaleModal = ({ 
   sale, 
+  profile,
   onClose, 
   onSave, 
   onDelete 
 }: { 
   sale: Sale; 
+  profile: UserProfile | null;
   onClose: () => void; 
   onSave: (id: string, data: Partial<Sale>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }) => {
   const [service, setService] = useState(sale.serviceType);
   const [amount, setAmount] = useState(sale.amount.toString());
+  const [tip, setTip] = useState(sale.tip ? sale.tip.toString() : '');
   const [payment, setPayment] = useState<'cash' | 'card'>(sale.paymentMethod);
   const [notes, setNotes] = useState(sale.notes || '');
   const [loading, setLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState('');
 
-  const services = ['Adult Haircut', 'Beard Trim', 'Adult Haircut + Beard Trim', 'Kids Haircut', 'Baby Haircut', 'Hair Color', 'Shave', 'Headshave'];
+  const services = [...['Adult Haircut', 'Beard Trim', 'Adult Haircut + Beard Trim', 'Kids Haircut', 'Baby Haircut', 'Hair Color', 'Shave', 'Headshave'], ...(profile?.customServices || [])];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
+    const parsedTip = tip ? parseFloat(tip) : 0;
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
       setError("Please enter a valid positive amount.");
       return;
@@ -327,6 +399,7 @@ const EditSaleModal = ({
       await onSave(sale.id, {
         serviceType: service,
         amount: parsedAmount,
+        tip: parsedTip > 0 ? parsedTip : undefined,
         paymentMethod: payment,
         notes: notes.trim()
       });
@@ -418,6 +491,17 @@ const EditSaleModal = ({
               />
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tip</label>
+              <input
+                type="number"
+                step="0.01"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none"
+                value={tip}
+                placeholder="Optional"
+                onChange={(e) => setTip(e.target.value)}
+              />
+            </div>
+            <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">Payment</label>
               <div className="flex gap-2">
                 <button
@@ -570,17 +654,85 @@ const Dashboard = ({
   sales, 
   profile,
   onEditSale,
-  onDeleteSale
+  onDeleteSale,
+  onAddSale,
+  onSetGoal,
+  onError,
+  onSuccess
 }: { 
   sales: Sale[]; 
   profile: UserProfile | null;
   onEditSale: (id: string, data: Partial<Sale>) => Promise<void>;
   onDeleteSale: (id: string) => Promise<void>;
+  onAddSale: (sale: Omit<Sale, 'id' | 'uid' | 'timestamp'>) => Promise<void>;
+  onSetGoal: (goal: number) => Promise<void>;
+  onError?: (msg: string) => void;
+  onSuccess?: (msg: string) => void;
 }) => {
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [goalInput, setGoalInput] = useState('');
+  const [isSettingGoal, setIsSettingGoal] = useState(false);
+  
   const totalSales = sales.reduce((acc, sale) => acc + sale.amount, 0);
   const cashSales = sales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount, 0);
   const cardSales = sales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount, 0);
+
+  const now = new Date();
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
+  const currentWeekSales = sales
+    .filter(s => s.timestamp && isWithinInterval(s.timestamp.toDate(), { start: weekStart, end: weekEnd }))
+    .reduce((acc, s) => acc + s.amount, 0);
+    
+  const todayStart = new Date(now.setHours(0, 0, 0, 0));
+  const todaySalesList = sales.filter(s => s.timestamp && s.timestamp.toDate() >= todayStart);
+  const todayRevenue = todaySalesList.reduce((acc, s) => acc + s.amount, 0);
+
+  const weekProgress = profile?.weeklyGoal ? Math.min(100, Math.round((currentWeekSales / profile.weeklyGoal) * 100)) : 0;
+  const lastSale = sales[0];
+
+  const handleQuickAdd = async () => {
+    if (!lastSale) return;
+    await onAddSale({
+      serviceType: lastSale.serviceType,
+      amount: lastSale.amount,
+      paymentMethod: lastSale.paymentMethod,
+      notes: ''
+    });
+  };
+
+  const [sendingSummary, setSendingSummary] = useState(false);
+  const handleSendDailySummary = async () => {
+    const web3formsKey = (import.meta as any).env.VITE_WEB3FORMS_ACCESS_KEY;
+    if (!web3formsKey) {
+      if (onError) onError("Email sending is not configured.");
+      return;
+    }
+    setSendingSummary(true);
+    try {
+      const topServiceCounts: Record<string, number> = {};
+      todaySalesList.forEach(s => { topServiceCounts[s.serviceType] = (topServiceCounts[s.serviceType] || 0) + 1; });
+      const topService = Object.entries(topServiceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'None';
+
+      await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          access_key: web3formsKey,
+          subject: 'Your Daily BarberTrack Summary',
+          from_name: 'BarberTrack Demo',
+          email: profile?.email,
+          message: `Daily Summary for Today:\n\nTotal Revenue: ${formatCurrency(todayRevenue, profile?.currency)}\nTotal Cuts: ${todaySalesList.length}\nTop Service: ${topService}\n\nKeep up the great work!`
+        })
+      });
+      if (onSuccess) onSuccess('Daily summary sent!');
+    } catch (e) {
+      console.error(e);
+      if (onError) onError('Failed to send summary.');
+    } finally {
+      setSendingSummary(false);
+    }
+  };
 
   const serviceData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -597,6 +749,31 @@ const Dashboard = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {/* Top Action Bar */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
+        <div className="flex-1">
+          {lastSale ? (
+            <button
+              onClick={handleQuickAdd}
+              className="flex items-center gap-2 bg-[#F5F5F0] text-[#5A5A40] px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#E6E6D6] transition-colors"
+            >
+              <Plus size={16} /> Quick Add: {lastSale.serviceType} ({formatCurrency(lastSale.amount, profile?.currency)})
+            </button>
+          ) : (
+            <span className="text-gray-400 text-sm">Add a sale to enable Quick Add</span>
+          )}
+        </div>
+        <div>
+          <button
+            onClick={handleSendDailySummary}
+            disabled={sendingSummary}
+            className="flex items-center gap-2 bg-[#5A5A40] text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#4A4A30] transition-colors disabled:opacity-70"
+          >
+            <Mail size={16} /> {sendingSummary ? 'Sending...' : 'Send Daily Summary'}
+          </button>
+        </div>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
@@ -638,6 +815,68 @@ const Dashboard = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Goal Tracker */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-purple-50 rounded-2xl text-purple-600">
+              <Target size={24} />
+            </div>
+            <div>
+              <h4 className="font-bold text-[#1A1A1A]">Weekly Revenue Goal</h4>
+              <p className="text-sm text-gray-500">Personal best tracker</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => setIsSettingGoal(!isSettingGoal)}
+            className="text-sm font-medium text-[#5A5A40] hover:text-[#4A4A30] transition-colors"
+          >
+            {profile?.weeklyGoal ? 'Edit Goal' : 'Set Goal'}
+          </button>
+        </div>
+
+        {isSettingGoal ? (
+          <div className="flex items-center gap-2 mt-4 animate-in slide-in-from-top-2 duration-300">
+            <span className="text-gray-500">{formatCurrency(1, profile?.currency).replace(/\d/g, '').replace(/\./g, '').trim()}</span>
+            <input 
+              type="number"
+              value={goalInput}
+              onChange={(e) => setGoalInput(e.target.value)}
+              placeholder="e.g. 500"
+              className="flex-1 px-4 py-2 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#5A5A40]/20 focus:border-[#5A5A40] transition-all"
+            />
+            <button 
+              onClick={async () => {
+                if (Number(goalInput) > 0) {
+                  await onSetGoal(Number(goalInput));
+                  setIsSettingGoal(false);
+                  setGoalInput('');
+                }
+              }}
+              className="bg-[#5A5A40] text-white px-4 py-2 rounded-xl font-medium hover:bg-[#4A4A30] transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        ) : profile?.weeklyGoal ? (
+          <div className="mt-4">
+            <div className="flex justify-between text-sm font-medium mb-2">
+              <span className="text-[#1A1A1A]">{formatCurrency(currentWeekSales, profile?.currency)} achieved</span>
+              <span className="text-gray-500">{formatCurrency(profile.weeklyGoal, profile?.currency)} goal</span>
+            </div>
+            <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-purple-500 transition-all duration-1000 ease-out"
+                style={{ width: `${weekProgress}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-2 text-right">{weekProgress}% completed</p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500 mt-2">Challenge yourself by setting a weekly target. It's a great way to stay motivated!</p>
+        )}
       </div>
 
       {/* Charts Row */}
@@ -740,6 +979,7 @@ const Dashboard = ({
       {editingSale && (
         <EditSaleModal
           sale={editingSale}
+          profile={profile}
           onClose={() => setEditingSale(null)}
           onSave={onEditSale}
           onDelete={onDeleteSale}
@@ -749,20 +989,23 @@ const Dashboard = ({
   );
 };
 
-const SalesEntry = ({ onAdd, profile }: { onAdd: (sale: Omit<Sale, 'id' | 'uid' | 'timestamp'>) => void, profile: UserProfile | null }) => {
+const SalesEntry = ({ onAdd, onAddCustomService, profile }: { onAdd: (sale: Omit<Sale, 'id' | 'uid' | 'timestamp'>) => void, onAddCustomService: (s: string) => void, profile: UserProfile | null }) => {
   const [service, setService] = useState('Adult Haircut');
   const [amount, setAmount] = useState('');
   const [payment, setPayment] = useState<'cash' | 'card'>('card');
+  const [tip, setTip] = useState('');
   const [notes, setNotes] = useState('');
+  const [newCustomService, setNewCustomService] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const services = ['Adult Haircut', 'Beard Trim', 'Adult Haircut + Beard Trim', 'Kids Haircut', 'Baby Haircut', 'Hair Color', 'Shave', 'Headshave'];
+  const services = [...['Adult Haircut', 'Beard Trim', 'Adult Haircut + Beard Trim', 'Kids Haircut', 'Baby Haircut', 'Hair Color', 'Shave', 'Headshave'], ...(profile?.customServices || [])];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
+    const parsedTip = tip ? parseFloat(tip) : 0;
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
       setError("Please enter a valid positive amount.");
       return;
@@ -774,10 +1017,12 @@ const SalesEntry = ({ onAdd, profile }: { onAdd: (sale: Omit<Sale, 'id' | 'uid' 
       await onAdd({
         serviceType: service,
         amount: parsedAmount,
+        tip: parsedTip > 0 ? parsedTip : undefined,
         paymentMethod: payment,
         notes: notes.trim()
       });
       setAmount('');
+      setTip('');
       setNotes('');
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
@@ -822,9 +1067,39 @@ const SalesEntry = ({ onAdd, profile }: { onAdd: (sale: Omit<Sale, 'id' | 'uid' 
               </button>
             ))}
           </div>
+
+          {profile?.plan === 'premium' ? (
+            <div className="mt-4 flex gap-2 animate-in fade-in">
+              <input
+                type="text"
+                placeholder="Add custom service (e.g. Skin Fade)"
+                className="flex-1 px-4 py-2 text-sm rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] outline-none"
+                value={newCustomService}
+                onChange={(e) => setNewCustomService(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (newCustomService.trim()) {
+                    onAddCustomService(newCustomService.trim());
+                    setService(newCustomService.trim());
+                    setNewCustomService('');
+                  }
+                }}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl text-sm transition-colors"
+              >
+                Add
+              </button>
+            </div>
+          ) : (
+            <div className="mt-4 flex items-center justify-between p-3 bg-gradient-to-r from-yellow-50 flex-col sm:flex-row gap-2 to-amber-50 rounded-xl border border-yellow-200/50">
+              <span className="text-sm font-medium text-yellow-800">Need custom services like Skin Fade or Locs?</span>
+              <span className="text-xs font-bold text-yellow-600 uppercase tracking-wider bg-yellow-100/50 px-2 py-1 rounded-md">Premium Feature</span>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Amount ({profile?.currency || 'GBP'})</label>
             <input
@@ -838,6 +1113,17 @@ const SalesEntry = ({ onAdd, profile }: { onAdd: (sale: Omit<Sale, 'id' | 'uid' 
             />
           </div>
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tip ({profile?.currency || 'GBP'})</label>
+            <input
+              type="number"
+              step="0.01"
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] focus:border-transparent outline-none"
+              placeholder="Optional tip"
+              value={tip}
+              onChange={(e) => setTip(e.target.value)}
+            />
+          </div>
+          <div className="sm:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
             <div className="flex gap-2">
               <button
@@ -925,13 +1211,19 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
       });
     }
     // Simplified for month/year
-    const counts: Record<string, number> = {};
+    const grouped = new Map<string, { name: string, amount: number, date: Date }>();
     filteredSales.forEach(s => {
       if (!s.timestamp) return;
-      const key = period === 'month' ? format(s.timestamp.toDate(), 'MMM d') : format(s.timestamp.toDate(), 'MMM');
-      counts[key] = (counts[key] || 0) + s.amount;
+      const date = s.timestamp.toDate();
+      const key = period === 'month' ? format(date, 'MMM d') : format(date, 'MMM');
+      if (!grouped.has(key)) {
+        grouped.set(key, { name: key, amount: 0, date });
+      }
+      grouped.get(key)!.amount += s.amount;
     });
-    return Object.entries(counts).map(([name, amount]) => ({ name, amount }));
+    return Array.from(grouped.values())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+      .map(({ name, amount }) => ({ name, amount }));
   }, [filteredSales, period, sales]);
 
   const exportToExcel = () => {
@@ -1335,6 +1627,7 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
   const [exchangeRate, setExchangeRate] = useState(1);
   const [showDowngradeConfirm, setShowDowngradeConfirm] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const fetchRate = async () => {
@@ -1344,10 +1637,39 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
           setExchangeRate(1);
           return;
         }
-        const res = await fetch('https://open.er-api.com/v6/latest/GBP');
-        const data = await res.json();
-        if (data && data.rates && data.rates[targetCurrency]) {
-          setExchangeRate(data.rates[targetCurrency]);
+
+        const cacheKey = `exchange_rate_${targetCurrency}`;
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const { rate, timestamp } = JSON.parse(cached);
+          if (Date.now() - timestamp < 1000 * 60 * 60 * 24) { // 24 hours
+            setExchangeRate(rate);
+            return;
+          }
+        }
+
+        const fallbackRates: Record<string, number> = {
+          'USD': 1.25,
+          'EUR': 1.15,
+        };
+
+        try {
+          const res = await fetch('https://open.er-api.com/v6/latest/GBP');
+          if (!res.ok) throw new Error('API error');
+          const data = await res.json();
+          if (data && data.rates && data.rates[targetCurrency]) {
+            const rate = data.rates[targetCurrency];
+            setExchangeRate(rate);
+            localStorage.setItem(cacheKey, JSON.stringify({ rate, timestamp: Date.now() }));
+            return;
+          }
+        } catch (apiError) {
+          console.warn("Exchange rate API failed. Filtering fallback.", apiError);
+        }
+        
+        // Fallback
+        if (fallbackRates[targetCurrency]) {
+          setExchangeRate(fallbackRates[targetCurrency]);
         }
       } catch (e) {
         console.error("Failed to fetch exchange rates", e);
@@ -1381,11 +1703,16 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
   const handleProcessPayment = async () => {
     if (!profile) return;
     setIsProcessingPayment(true);
+    setError('');
     try {
+      const token = await auth.currentUser?.getIdToken();
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: profile.email, uid: profile.uid })
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ email: profile.email })
       });
       const data = await response.json();
       if (data.url) {
@@ -1402,13 +1729,21 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
       }
     } catch (error) {
       console.error(error);
-      alert('Could not initiate checkout. Please try again.');
+      setError('Could not initiate checkout. Please try again.');
       setIsProcessingPayment(false);
     }
   };
 
   return (
     <div className="max-w-4xl mx-auto py-8 animate-in fade-in duration-700 space-y-12">
+      {error && (
+        <div className="bg-red-50 text-red-500 p-4 rounded-xl flex items-center justify-between">
+          <p>{error}</p>
+          <button onClick={() => setError('')} className="text-red-500 hover:text-red-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
       {/* Settings Section */}
       <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm">
         <h2 className="text-2xl font-serif mb-6">App Settings</h2>
@@ -1519,16 +1854,24 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
           <div className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl">
             <h3 className="text-2xl font-serif mb-4">Cancel Premium Plan?</h3>
-            <p className="text-gray-600 mb-6">
-              You will be charged only for the days you used the app. The remaining amount for unused days will be refunded to you.
-            </p>
-            <div className="bg-gray-50 p-4 rounded-2xl mb-8">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-gray-500">Estimated Refund:</span>
-                <span className="font-bold text-lg text-green-600">{formatCurrency(calculateRefund(), profile?.currency)}</span>
-              </div>
-              <p className="text-xs text-gray-400">Based on a 30-day billing cycle.</p>
-            </div>
+            {profile?.premiumSince ? (
+              <>
+                <p className="text-gray-600 mb-6">
+                  You will be charged only for the days you used the app. The remaining amount for unused days will be refunded to you.
+                </p>
+                <div className="bg-gray-50 p-4 rounded-2xl mb-8">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-gray-500">Estimated Refund:</span>
+                    <span className="font-bold text-lg text-green-600">{formatCurrency(calculateRefund(), profile?.currency)}</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Based on a 30-day billing cycle.</p>
+                </div>
+              </>
+            ) : (
+              <p className="text-gray-600 mb-8">
+                Are you sure you want to cancel your Premium Plan and downgrade to the Basic plan? You will lose access to premium features immediately.
+              </p>
+            )}
             <div className="flex gap-4">
               <button 
                 onClick={() => setShowDowngradeConfirm(false)}
@@ -1789,6 +2132,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'entry' | 'reports' | 'billing' | 'suggestions' | 'admin'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [appError, setAppError] = useState('');
+  const [appSuccess, setAppSuccess] = useState('');
 
   const emailLinkProcessed = React.useRef(false);
   const [isProcessingLink, setIsProcessingLink] = useState(isSignInWithEmailLink(auth, window.location.href));
@@ -1798,20 +2143,14 @@ export default function App() {
   useEffect(() => {
     const handleStripeRedirects = async () => {
       const query = new URLSearchParams(window.location.search);
-      if (query.get('success') && profile && profile.plan !== 'premium') {
-        try {
-          await updateDoc(doc(db, 'users', profile.uid), {
-            plan: 'premium',
-            premiumSince: serverTimestamp()
-          });
-          window.history.replaceState({}, document.title, window.location.pathname);
-          alert('Payment successful! You are now a Premium user.');
-        } catch (error) {
-          console.error('Error upgrading user:', error);
-        }
+      if (query.get('success')) {
+        // Wait for webhook to upgrade the user
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setAppSuccess('Payment successful! Your account is processing. Please allow a few moments for the upgrade to complete.');
       }
       if (query.get('canceled')) {
-        alert('Payment was canceled. You have not been charged.');
+        setAppSuccess('');
+        setAppError('Payment was canceled. You have not been charged.');
         window.history.replaceState({}, document.title, window.location.pathname);
       }
     };
@@ -1992,8 +2331,9 @@ export default function App() {
         timestamp: serverTimestamp()
       });
       setActiveTab('dashboard');
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'sales');
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.WRITE, 'sales'); }
+      catch (e: any) { setAppError(e.message || "Failed to add sale"); }
     }
   };
 
@@ -2001,8 +2341,9 @@ export default function App() {
     if (!user) return;
     try {
       await updateDoc(doc(db, 'sales', id), data);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `sales/${id}`);
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.UPDATE, `sales/${id}`); }
+      catch (e: any) { setAppError(e.message || "Failed to update sale"); }
     }
   };
 
@@ -2010,18 +2351,62 @@ export default function App() {
     if (!user) return;
     try {
       await deleteDoc(doc(db, 'sales', id));
-    } catch (err) {
-      handleFirestoreError(err, OperationType.DELETE, `sales/${id}`);
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.DELETE, `sales/${id}`); }
+      catch (e: any) { setAppError(e.message || "Failed to delete sale"); }
     }
   };
 
   const handleDowngrade = async () => {
     if (!user) return;
     try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/cancel-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ uid: user.uid, email: user.email }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'Failed to cancel subscription');
+      }
+
       await setDoc(doc(db, 'users', user.uid), { plan: 'basic', premiumSince: null }, { merge: true });
       setProfile(prev => prev ? { ...prev, plan: 'basic', premiumSince: null } : null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+      
+      setAppSuccess('Your subscription has been successfully canceled.');
+    } catch (err: any) {
+      console.error(err);
+      setAppError('Error: ' + err.message);
+    }
+  };
+
+  const handleSetGoal = async (goal: number) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, 'users', user.uid), { weeklyGoal: goal }, { merge: true });
+      setProfile(prev => prev ? { ...prev, weeklyGoal: goal } : null);
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`); }
+      catch (e: any) { setAppError(e.message || "Failed to update weekly goal"); }
+    }
+  };
+
+  const handleAddCustomService = async (serviceName: string) => {
+    if (!user || !profile) return;
+    try {
+      const customServices = profile.customServices || [];
+      if (!customServices.includes(serviceName)) {
+        const updatedServices = [...customServices, serviceName];
+        await setDoc(doc(db, 'users', user.uid), { customServices: updatedServices }, { merge: true });
+        setProfile(prev => prev ? { ...prev, customServices: updatedServices } : null);
+      }
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`); }
+      catch (e: any) { setAppError(e.message || "Failed to add custom service"); }
     }
   };
 
@@ -2030,8 +2415,9 @@ export default function App() {
     try {
       await setDoc(doc(db, 'users', user.uid), { currency }, { merge: true });
       setProfile(prev => prev ? { ...prev, currency } : null);
-    } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+    } catch (err: any) {
+      try { handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`); }
+      catch (e: any) { setAppError(e.message || "Failed to update currency"); }
     }
   };
 
@@ -2099,7 +2485,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'entry', label: 'New Sale', icon: PlusCircle },
     { id: 'reports', label: 'Reports', icon: BarChart3 },
-    { id: 'billing', label: 'Billing', icon: CreditCard },
+    { id: 'billing', label: profile?.plan === 'premium' ? 'Plans' : 'Upgrade', icon: CreditCard },
     { id: 'suggestions', label: 'Suggestions', icon: Lightbulb },
   ];
 
@@ -2219,14 +2605,30 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-10 mt-16 md:mt-0 overflow-y-auto">
+        {appError && (
+          <div className="mb-8 bg-red-50 text-red-500 p-4 rounded-xl flex items-center justify-between shadow-sm">
+            <p>{appError}</p>
+            <button onClick={() => setAppError('')} className="text-red-500 hover:text-red-700">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
+        {appSuccess && (
+          <div className="mb-8 bg-green-50 text-green-700 p-4 rounded-xl flex items-center justify-between shadow-sm">
+            <p>{appSuccess}</p>
+            <button onClick={() => setAppSuccess('')} className="text-green-700 hover:text-green-900">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
         <header className="mb-8 hidden md:block">
           <h2 className="text-4xl font-serif text-[#1A1A1A] capitalize">{activeTab}</h2>
           <p className="text-gray-400 mt-1">Manage and track your shop performance</p>
         </header>
 
         <div className="max-w-6xl mx-auto">
-          {activeTab === 'dashboard' && <Dashboard sales={sales} profile={profile} onEditSale={handleEditSale} onDeleteSale={handleDeleteSale} />}
-          {activeTab === 'entry' && <SalesEntry onAdd={handleAddSale} profile={profile} />}
+          {activeTab === 'dashboard' && <Dashboard sales={sales} profile={profile} onEditSale={handleEditSale} onDeleteSale={handleDeleteSale} onAddSale={handleAddSale} onSetGoal={handleSetGoal} onError={setAppError} onSuccess={setAppSuccess} />}
+          {activeTab === 'entry' && <SalesEntry onAdd={handleAddSale} onAddCustomService={handleAddCustomService} profile={profile} />}
           {activeTab === 'reports' && <Reports sales={sales} profile={profile} />}
           {activeTab === 'billing' && <Billing profile={profile} onDowngrade={handleDowngrade} onUpdateCurrency={handleUpdateCurrency} />}
           {activeTab === 'suggestions' && <Suggestions profile={profile} />}
