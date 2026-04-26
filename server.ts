@@ -82,10 +82,16 @@ app.post('/api/webhook', async (req, res) => {
          const adminApp = getFirebaseAdmin();
          const db = admin.firestore(adminApp);
          
-         await db.collection('users').doc(uid).update({
+         const updateData: any = {
            plan: 'premium',
            premiumSince: admin.firestore.FieldValue.serverTimestamp()
-         });
+         };
+
+         if (session.customer && typeof session.customer === 'string') {
+           updateData.stripeCustomerId = session.customer;
+         }
+
+         await db.collection('users').doc(uid).update(updateData);
          
          console.log(`User ${uid} upgraded to premium.`);
        } catch (dbErr) {
@@ -127,7 +133,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
               name: 'BarberTrack Premium',
               description: 'Unlimited sales tracking and advanced analytics.',
             },
-            unit_amount: 999, // £9.99
+            unit_amount: 499, // £4.99
             recurring: {
               interval: 'month',
             },
@@ -167,20 +173,34 @@ app.post('/api/cancel-subscription', async (req, res) => {
       return;
     }
 
-    // Find customer by email and cancel their active subscriptions
-    const customers = await stripe.customers.list({ email });
-    for (const customer of customers.data) {
-      const subscriptions = await stripe.subscriptions.list({ customer: customer.id, status: 'active' });
-      for (const sub of subscriptions.data) {
-        await stripe.subscriptions.cancel(sub.id);
-        console.log(`Canceled subscription ${sub.id} for user ${uid}`);
+    // Find customer by stripeCustomerId in firestore
+    const db = admin.firestore(adminApp);
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+
+    // If we have a specific stripeCustomerId, use it instead of cancelling all by email
+    if (userData && userData.stripeCustomerId) {
+       const subscriptions = await stripe.subscriptions.list({ customer: userData.stripeCustomerId, status: 'active' });
+       for (const sub of subscriptions.data) {
+         await stripe.subscriptions.cancel(sub.id);
+         console.log(`Canceled subscription ${sub.id} for user ${uid}`);
+       }
+    } else {
+      // Fallback for older users who don't have stripeCustomerId saved yet
+      const customers = await stripe.customers.list({ email });
+      if (customers.data.length > 0) {
+        // Only use the most recent customer object to avoid cancelling everything with this email
+        const customer = customers.data[0];
+        const subscriptions = await stripe.subscriptions.list({ customer: customer.id, status: 'active' });
+        for (const sub of subscriptions.data) {
+          await stripe.subscriptions.cancel(sub.id);
+          console.log(`Canceled subscription ${sub.id} for user ${uid}`);
+        }
       }
     }
 
     // Update firestore to basic using admin sdk
     try {
-      const adminApp = getFirebaseAdmin();
-      const db = admin.firestore(adminApp);
       await db.collection('users').doc(uid).update({
         plan: 'basic',
         premiumSince: null

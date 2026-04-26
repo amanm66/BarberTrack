@@ -72,23 +72,26 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return hasRequiredFields(['uid', 'email', 'plan', 'createdAt']) &&
-             hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince']) &&
+             hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince', 'weeklyGoal', 'customServices']) &&
              data.uid is string &&
              data.email is string && isValidEmail(data.email) &&
              data.plan in ['basic', 'premium'] &&
              (!('currency' in data) || (data.currency is string && data.currency.size() == 3)) &&
              (!('premiumSince' in data) || data.premiumSince is timestamp || data.premiumSince == null) &&
+             (!('weeklyGoal' in data) || (data.weeklyGoal is number && data.weeklyGoal > 0)) &&
+             (!('customServices' in data) || data.customServices is list) &&
              data.createdAt is timestamp;
     }
 
     function isValidSale(data) {
       return hasRequiredFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp']) &&
-             hasOnlyAllowedFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp', 'notes']) &&
+             hasOnlyAllowedFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp', 'notes', 'tip']) &&
              data.uid is string &&
              data.serviceType is string && data.serviceType.size() > 0 && data.serviceType.size() < 100 &&
              data.paymentMethod in ['cash', 'card'] &&
              data.amount is number && data.amount >= 0 &&
              data.timestamp is timestamp &&
+             (!('tip' in data) || (data.tip is number && data.tip >= 0)) &&
              (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000));
     }
 

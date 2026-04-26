@@ -76,6 +76,7 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
+  Legend,
   ResponsiveContainer, 
   PieChart, 
   Pie, 
@@ -673,20 +674,28 @@ const Dashboard = ({
   const [goalInput, setGoalInput] = useState('');
   const [isSettingGoal, setIsSettingGoal] = useState(false);
   
-  const totalSales = sales.reduce((acc, sale) => acc + sale.amount, 0);
-  const cashSales = sales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount, 0);
-  const cardSales = sales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount, 0);
+  const totalServiceRevenue = sales.reduce((acc, sale) => acc + sale.amount, 0);
+  const totalTips = sales.reduce((acc, sale) => acc + (sale.tip || 0), 0);
+  const totalRevenue = totalServiceRevenue + totalTips;
+  const cashSales = sales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount + (s.tip || 0), 0);
+  const cardSales = sales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount + (s.tip || 0), 0);
 
   const now = new Date();
   const weekStart = startOfWeek(now, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 });
   const currentWeekSales = sales
     .filter(s => s.timestamp && isWithinInterval(s.timestamp.toDate(), { start: weekStart, end: weekEnd }))
-    .reduce((acc, s) => acc + s.amount, 0);
+    .reduce((acc, s) => acc + s.amount + (s.tip || 0), 0);
+    
+  const lastWeekStart = startOfWeek(subDays(weekStart, 1), { weekStartsOn: 1 });
+  const lastWeekEnd = endOfWeek(subDays(weekStart, 1), { weekStartsOn: 1 });
+  const lastWeekSales = sales
+    .filter(s => s.timestamp && isWithinInterval(s.timestamp.toDate(), { start: lastWeekStart, end: lastWeekEnd }))
+    .reduce((acc, s) => acc + s.amount + (s.tip || 0), 0);
     
   const todayStart = new Date(now.setHours(0, 0, 0, 0));
   const todaySalesList = sales.filter(s => s.timestamp && s.timestamp.toDate() >= todayStart);
-  const todayRevenue = todaySalesList.reduce((acc, s) => acc + s.amount, 0);
+  const todayRevenue = todaySalesList.reduce((acc, s) => acc + s.amount + (s.tip || 0), 0);
 
   const weekProgress = profile?.weeklyGoal ? Math.min(100, Math.round((currentWeekSales / profile.weeklyGoal) * 100)) : 0;
   const lastSale = sales[0];
@@ -696,6 +705,7 @@ const Dashboard = ({
     await onAddSale({
       serviceType: lastSale.serviceType,
       amount: lastSale.amount,
+      tip: lastSale.tip,
       paymentMethod: lastSale.paymentMethod,
       notes: ''
     });
@@ -775,43 +785,60 @@ const Dashboard = ({
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-50 rounded-2xl text-green-600">
-              <DollarSign size={24} />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <div className="p-2.5 bg-green-50 rounded-2xl text-green-600">
+                <DollarSign size={22} />
+              </div>
             </div>
+            <p className="text-gray-500 text-xs sm:text-sm font-medium mb-1 line-clamp-1">Total Revenue</p>
           </div>
-          <p className="text-gray-500 text-sm font-medium">Total Revenue</p>
-          <h3 className="text-3xl font-bold text-[#1A1A1A]">{formatCurrency(totalSales, profile?.currency)}</h3>
+          <h3 className="text-xl sm:text-2xl font-bold text-[#1A1A1A] line-clamp-1" title={formatCurrency(totalRevenue, profile?.currency)}>{formatCurrency(totalRevenue, profile?.currency)}</h3>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-50 rounded-2xl text-blue-600">
-              <TrendingUp size={24} />
+        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <div className="p-2.5 bg-indigo-50 rounded-2xl text-indigo-600">
+                <Plus size={22} />
+              </div>
             </div>
+            <p className="text-gray-500 text-xs sm:text-sm font-medium mb-1 line-clamp-1">Total Tips</p>
           </div>
-          <p className="text-gray-500 text-sm font-medium">Total Services</p>
-          <h3 className="text-3xl font-bold text-[#1A1A1A]">{sales.length}</h3>
+          <h3 className="text-xl sm:text-2xl font-bold text-[#1A1A1A] line-clamp-1" title={formatCurrency(totalTips, profile?.currency)}>{formatCurrency(totalTips, profile?.currency)}</h3>
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-          <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-orange-50 rounded-2xl text-orange-600">
-              <CreditCard size={24} />
+        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <div className="p-2.5 bg-blue-50 rounded-2xl text-blue-600">
+                <TrendingUp size={22} />
+              </div>
             </div>
+            <p className="text-gray-500 text-xs sm:text-sm font-medium mb-1 line-clamp-1">Total Services</p>
           </div>
-          <p className="text-gray-500 text-sm font-medium">Card vs Cash</p>
-          <div className="flex items-center gap-4 mt-1">
-            <div className="flex flex-col">
-              <span className="text-xs text-gray-400">Card</span>
-              <span className="font-bold">{formatCurrency(cardSales, profile?.currency)}</span>
+          <h3 className="text-xl sm:text-2xl font-bold text-[#1A1A1A] line-clamp-1">{sales.length}</h3>
+        </div>
+
+        <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
+              <div className="p-2.5 bg-orange-50 rounded-2xl text-orange-600">
+                <CreditCard size={22} />
+              </div>
             </div>
-            <div className="h-8 w-px bg-gray-100" />
+            <p className="text-gray-500 text-xs sm:text-sm font-medium line-clamp-1">Card vs Cash</p>
+          </div>
+          <div className="mt-2 space-y-2">
             <div className="flex flex-col">
-              <span className="text-xs text-gray-400">Cash</span>
-              <span className="font-bold">{formatCurrency(cashSales, profile?.currency)}</span>
+              <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Card</span>
+              <span className="font-bold text-[#1A1A1A] text-lg sm:text-xl line-clamp-1" title={formatCurrency(cardSales, profile?.currency)}>{formatCurrency(cardSales, profile?.currency)}</span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Cash</span>
+              <span className="font-bold text-[#1A1A1A] text-lg sm:text-xl line-clamp-1" title={formatCurrency(cashSales, profile?.currency)}>{formatCurrency(cashSales, profile?.currency)}</span>
             </div>
           </div>
         </div>
@@ -872,7 +899,10 @@ const Dashboard = ({
                 style={{ width: `${weekProgress}%` }}
               />
             </div>
-            <p className="text-xs text-gray-400 mt-2 text-right">{weekProgress}% completed</p>
+            <div className="flex justify-between items-center mt-2">
+              <p className="text-xs text-gray-500">Last week: {formatCurrency(lastWeekSales, profile?.currency)}</p>
+              <p className="text-xs text-gray-400 font-medium">{weekProgress}% completed</p>
+            </div>
           </div>
         ) : (
           <p className="text-sm text-gray-500 mt-2">Challenge yourself by setting a weekly target. It's a great way to stay motivated!</p>
@@ -1069,27 +1099,46 @@ const SalesEntry = ({ onAdd, onAddCustomService, profile }: { onAdd: (sale: Omit
           </div>
 
           {profile?.plan === 'premium' ? (
-            <div className="mt-4 flex gap-2 animate-in fade-in">
-              <input
-                type="text"
-                placeholder="Add custom service (e.g. Skin Fade)"
-                className="flex-1 px-4 py-2 text-sm rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] outline-none"
-                value={newCustomService}
-                onChange={(e) => setNewCustomService(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (newCustomService.trim()) {
-                    onAddCustomService(newCustomService.trim());
-                    setService(newCustomService.trim());
+            <div className="mt-4 flex flex-col gap-2 animate-in fade-in">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Add custom service (e.g. Skin Fade)"
+                  className="flex-1 px-4 py-2 text-sm rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#5A5A40] outline-none"
+                  value={newCustomService}
+                  onChange={(e) => {
+                    setNewCustomService(e.target.value);
+                    if (error && error.includes('Service')) setError('');
+                  }}
+                  maxLength={30}
+                />
+                <button
+                  type="button"
+                  disabled={!newCustomService.trim() || newCustomService.trim().length > 30 || services.some(s => s.toLowerCase() === newCustomService.trim().toLowerCase())}
+                  onClick={() => {
+                    const sName = newCustomService.trim();
+                    if (!sName) return;
+                    if (sName.length > 30) {
+                      setError("Service name is too long.");
+                      return;
+                    }
+                    if (services.some(s => s.toLowerCase() === sName.toLowerCase())) {
+                      setError("Service already exists.");
+                      return;
+                    }
+                    setError('');
+                    onAddCustomService(sName);
+                    setService(sName);
                     setNewCustomService('');
-                  }
-                }}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl text-sm transition-colors"
-              >
-                Add
-              </button>
+                  }}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-xl text-sm transition-colors md:disabled:hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add
+                </button>
+              </div>
+              {newCustomService.trim() && services.some(s => s.toLowerCase() === newCustomService.trim().toLowerCase()) && (
+                <p className="text-xs text-red-500 ml-1">Service already exists</p>
+              )}
             </div>
           ) : (
             <div className="mt-4 flex items-center justify-between p-3 bg-gradient-to-r from-yellow-50 flex-col sm:flex-row gap-2 to-amber-50 rounded-xl border border-yellow-200/50">
@@ -1206,24 +1255,24 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
         const daySales = sales.filter(s => s.timestamp && format(s.timestamp.toDate(), 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd'));
         return {
           name: format(day, 'EEE'),
-          amount: daySales.reduce((acc, s) => acc + s.amount, 0)
+          amount: daySales.reduce((acc, s) => acc + s.amount, 0),
+          tips: daySales.reduce((acc, s) => acc + (s.tip || 0), 0)
         };
       });
     }
     // Simplified for month/year
-    const grouped = new Map<string, { name: string, amount: number, date: Date }>();
+    const counts: Record<string, { amount: number; tips: number }> = {};
     filteredSales.forEach(s => {
       if (!s.timestamp) return;
       const date = s.timestamp.toDate();
       const key = period === 'month' ? format(date, 'MMM d') : format(date, 'MMM');
-      if (!grouped.has(key)) {
-        grouped.set(key, { name: key, amount: 0, date });
-      }
-      grouped.get(key)!.amount += s.amount;
+      if (!counts[key]) counts[key] = { amount: 0, tips: 0 };
+      counts[key].amount += s.amount;
+      counts[key].tips += (s.tip || 0);
     });
-    return Array.from(grouped.values())
-      .sort((a, b) => a.date.getTime() - b.date.getTime())
-      .map(({ name, amount }) => ({ name, amount }));
+    return Object.entries(counts)
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .map(([name, data]) => ({ name, amount: data.amount, tips: data.tips }));
   }, [filteredSales, period, sales]);
 
   const exportToExcel = () => {
@@ -1233,13 +1282,14 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
       return;
     }
 
-    const headers = ['Date', 'Service Type', 'Amount', 'Payment Method', 'Notes'];
+    const headers = ['Date', 'Service Type', 'Amount', 'Tips', 'Payment Method', 'Notes'];
     const csvContent = [
       headers.join(','),
       ...filteredSales.map(s => [
         s.timestamp ? format(s.timestamp.toDate(), 'yyyy-MM-dd HH:mm') : 'Pending',
         `"${s.serviceType}"`,
         s.amount,
+        s.tip || 0,
         s.paymentMethod,
         `"${(s.notes || '').replace(/"/g, '""')}"`
       ].join(','))
@@ -1297,8 +1347,8 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
             Export to Excel
           </button>
           <div className="text-right border-l border-gray-100 pl-6">
-            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total for Period</p>
-            <p className="text-xl font-bold text-[#5A5A40]">{formatCurrency(filteredSales.reduce((acc, s) => acc + s.amount, 0), profile?.currency)}</p>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total Revenue</p>
+            <p className="text-xl font-bold text-[#5A5A40]">{formatCurrency(filteredSales.reduce((acc, s) => acc + s.amount + (s.tip || 0), 0), profile?.currency)}</p>
           </div>
         </div>
       </div>
@@ -1315,7 +1365,9 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
                 cursor={{ fill: '#F5F5F0' }}
                 contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}
               />
-              <Bar dataKey="amount" fill="#5A5A40" radius={[8, 8, 0, 0]} />
+              <Legend wrapperStyle={{ fontSize: '12px' }} />
+              <Bar dataKey="amount" name="Services" stackId="a" fill="#5A5A40" radius={[0, 0, 0, 0]} />
+              <Bar dataKey="tips" name="Tips" stackId="a" fill="#C2C2A3" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1352,7 +1404,7 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
                 <CreditCard size={24} />
               </div>
               <p className="text-xs text-gray-400 font-bold">CARD</p>
-              <p className="text-lg font-bold">{formatCurrency(filteredSales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount, 0), profile?.currency)}</p>
+              <p className="text-lg font-bold">{formatCurrency(filteredSales.filter(s => s.paymentMethod === 'card').reduce((acc, s) => acc + s.amount + (s.tip || 0), 0), profile?.currency)}</p>
             </div>
             <div className="w-px h-24 bg-gray-100" />
             <div className="text-center">
@@ -1360,7 +1412,7 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
                 <DollarSign size={24} />
               </div>
               <p className="text-xs text-gray-400 font-bold">CASH</p>
-              <p className="text-lg font-bold">{formatCurrency(filteredSales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount, 0), profile?.currency)}</p>
+              <p className="text-lg font-bold">{formatCurrency(filteredSales.filter(s => s.paymentMethod === 'cash').reduce((acc, s) => acc + s.amount + (s.tip || 0), 0), profile?.currency)}</p>
             </div>
           </div>
         </div>
@@ -1678,22 +1730,7 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
     fetchRate();
   }, [profile?.currency]);
 
-  const premiumPrice = 9.99 * exchangeRate;
-
-  const calculateRefund = () => {
-    if (!profile?.premiumSince) return 0;
-    const now = new Date();
-    const premiumDate = profile.premiumSince.toDate();
-    const diffTime = Math.abs(now.getTime() - premiumDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    // Assuming a 30-day billing cycle
-    const daysUsed = Math.min(diffDays, 30);
-    const daysRemaining = 30 - daysUsed;
-    
-    const refundAmount = (premiumPrice / 30) * daysRemaining;
-    return Math.max(0, refundAmount);
-  };
+  const premiumPrice = 4.99 * exchangeRate;
 
   const handleConfirmDowngrade = () => {
     onDowngrade();
@@ -1854,24 +1891,9 @@ const Billing = ({ profile, onDowngrade, onUpdateCurrency }: { profile: UserProf
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 animate-in fade-in">
           <div className="bg-white rounded-[32px] p-8 max-w-md w-full shadow-2xl">
             <h3 className="text-2xl font-serif mb-4">Cancel Premium Plan?</h3>
-            {profile?.premiumSince ? (
-              <>
-                <p className="text-gray-600 mb-6">
-                  You will be charged only for the days you used the app. The remaining amount for unused days will be refunded to you.
-                </p>
-                <div className="bg-gray-50 p-4 rounded-2xl mb-8">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-gray-500">Estimated Refund:</span>
-                    <span className="font-bold text-lg text-green-600">{formatCurrency(calculateRefund(), profile?.currency)}</span>
-                  </div>
-                  <p className="text-xs text-gray-400">Based on a 30-day billing cycle.</p>
-                </div>
-              </>
-            ) : (
-              <p className="text-gray-600 mb-8">
-                Are you sure you want to cancel your Premium Plan and downgrade to the Basic plan? You will lose access to premium features immediately.
-              </p>
-            )}
+            <p className="text-gray-600 mb-8">
+              Are you sure you want to cancel your Premium Plan and downgrade to the Basic plan? You will lose access to premium features immediately.
+            </p>
             <div className="flex gap-4">
               <button 
                 onClick={() => setShowDowngradeConfirm(false)}
@@ -2134,21 +2156,31 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [appError, setAppError] = useState('');
   const [appSuccess, setAppSuccess] = useState('');
+  const [isUpgrading, setIsUpgrading] = useState(false);
 
   const emailLinkProcessed = React.useRef(false);
+  const stripeRedirectProcessed = React.useRef(false);
   const [isProcessingLink, setIsProcessingLink] = useState(isSignInWithEmailLink(auth, window.location.href));
   const [linkEmailRequired, setLinkEmailRequired] = useState(false);
   const [linkError, setLinkError] = useState('');
 
   useEffect(() => {
     const handleStripeRedirects = async () => {
+      if (stripeRedirectProcessed.current) return;
+      
       const query = new URLSearchParams(window.location.search);
       if (query.get('success')) {
-        // Wait for webhook to upgrade the user
+        stripeRedirectProcessed.current = true;
         window.history.replaceState({}, document.title, window.location.pathname);
-        setAppSuccess('Payment successful! Your account is processing. Please allow a few moments for the upgrade to complete.');
+        if (profile?.plan === 'premium') {
+            setAppSuccess('Welcome to Premium! Your account has been upgraded.');
+            setActiveTab('dashboard');
+        } else {
+            setIsUpgrading(true);
+        }
       }
       if (query.get('canceled')) {
+        stripeRedirectProcessed.current = true;
         setAppSuccess('');
         setAppError('Payment was canceled. You have not been charged.');
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -2156,6 +2188,14 @@ export default function App() {
     };
     handleStripeRedirects();
   }, [profile]);
+
+  useEffect(() => {
+    if (isUpgrading && profile?.plan === 'premium') {
+      setIsUpgrading(false);
+      setAppSuccess('Welcome to Premium! Your account has been upgraded.');
+      setActiveTab('dashboard');
+    }
+  }, [profile?.plan, isUpgrading]);
 
   useEffect(() => {
     const handleEmailLinkSignIn = async () => {
@@ -2421,12 +2461,14 @@ export default function App() {
     }
   };
 
-  if (loading || isProcessingLink) {
+  if (loading || isProcessingLink || isUpgrading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#F5F5F0]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#5A5A40] mx-auto mb-4"></div>
-          <p className="text-[#5A5A40] font-medium">Completing sign in...</p>
+          <p className="text-[#5A5A40] font-medium">
+            {isUpgrading ? 'Upgrading your account...' : 'Completing sign in...'}
+          </p>
         </div>
       </div>
     );
