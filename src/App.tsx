@@ -747,7 +747,7 @@ const Dashboard = ({
   const serviceData = useMemo(() => {
     const counts: Record<string, number> = {};
     sales.forEach(s => {
-      counts[s.serviceType] = (counts[s.serviceType] || 0) + s.amount;
+      counts[s.serviceType] = (counts[s.serviceType] || 0) + s.amount + (s.tip || 0);
     });
     return Object.entries(counts).map(([name, value]) => ({ name, value }));
   }, [sales]);
@@ -759,6 +759,11 @@ const Dashboard = ({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {profile?.plan !== 'premium' && (
+        <div className="bg-[#E6E6D6] text-[#5A5A40] px-4 py-3 rounded-2xl text-sm font-medium border border-[#C2C2A3] flex items-center justify-center">
+          Viewing last 30 days — upgrade for full history.
+        </div>
+      )}
       {/* Top Action Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
         <div className="flex-1">
@@ -767,7 +772,7 @@ const Dashboard = ({
               onClick={handleQuickAdd}
               className="flex items-center gap-2 bg-[#F5F5F0] text-[#5A5A40] px-4 py-2 rounded-xl text-sm font-medium hover:bg-[#E6E6D6] transition-colors"
             >
-              <Plus size={16} /> Quick Add: {lastSale.serviceType} ({formatCurrency(lastSale.amount, profile?.currency)})
+              <Plus size={16} /> Quick Add: {lastSale.serviceType} ({formatCurrency(lastSale.amount + (lastSale.tip || 0), profile?.currency)})
             </button>
           ) : (
             <span className="text-gray-400 text-sm">Add a sale to enable Quick Add</span>
@@ -785,7 +790,25 @@ const Dashboard = ({
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        {/* Today's Revenue Card */}
+        <div className="bg-[#5A5A40] p-4 sm:p-6 rounded-3xl shadow-sm border border-[#4A4A30] flex flex-col justify-between text-white md:col-span-1 lg:col-span-1 relative overflow-hidden">
+          <div className="absolute -right-6 -top-6 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+          <div className="relative z-10 flex flex-col h-full justify-between">
+            <div>
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <div className="p-2.5 bg-white/20 rounded-2xl text-white">
+                  <Calendar size={22} />
+                </div>
+              </div>
+              <p className="text-white/80 text-xs sm:text-sm font-medium mb-1 line-clamp-1">Today's Revenue</p>
+            </div>
+            <h3 className="text-xl sm:text-2xl font-bold text-white line-clamp-1" title={formatCurrency(todayRevenue, profile?.currency)}>
+              {formatCurrency(todayRevenue, profile?.currency)}
+            </h3>
+          </div>
+        </div>
+
         <div className="bg-white p-4 sm:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-3 sm:mb-4">
@@ -829,16 +852,17 @@ const Dashboard = ({
                 <CreditCard size={22} />
               </div>
             </div>
-            <p className="text-gray-500 text-xs sm:text-sm font-medium line-clamp-1">Card vs Cash</p>
+            <p className="text-gray-500 text-xs sm:text-sm font-medium mb-1 line-clamp-1">Card vs Cash</p>
           </div>
-          <div className="mt-2 space-y-2">
-            <div className="flex flex-col">
-              <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Card</span>
-              <span className="font-bold text-[#1A1A1A] text-lg sm:text-xl line-clamp-1" title={formatCurrency(cardSales, profile?.currency)}>{formatCurrency(cardSales, profile?.currency)}</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex-1 min-w-0">
+              <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-wider leading-none mb-1">Card</span>
+              <span className="block font-bold text-[#1A1A1A] text-base sm:text-xl truncate" title={formatCurrency(cardSales, profile?.currency)}>{formatCurrency(cardSales, profile?.currency)}</span>
             </div>
-            <div className="flex flex-col">
-              <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Cash</span>
-              <span className="font-bold text-[#1A1A1A] text-lg sm:text-xl line-clamp-1" title={formatCurrency(cashSales, profile?.currency)}>{formatCurrency(cashSales, profile?.currency)}</span>
+            <div className="w-px h-8 bg-gray-200" />
+            <div className="flex-1 min-w-0 text-right">
+              <span className="block text-[10px] text-gray-400 uppercase font-bold tracking-wider leading-none mb-1">Cash</span>
+              <span className="block font-bold text-[#1A1A1A] text-base sm:text-xl truncate" title={formatCurrency(cashSales, profile?.currency)}>{formatCurrency(cashSales, profile?.currency)}</span>
             </div>
           </div>
         </div>
@@ -914,13 +938,16 @@ const Dashboard = ({
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
           <div className="flex justify-between items-center mb-6">
             <h4 className="text-lg font-serif">Revenue by Service</h4>
-            <button 
-              onClick={() => window.location.reload()}
-              className="p-2 text-gray-400 hover:text-[#5A5A40] hover:bg-gray-50 rounded-xl transition-all"
-              title="Refresh Data"
-            >
-              <Zap size={18} />
-            </button>
+            <div className="group relative">
+              <button 
+                className="p-2 text-gray-400 cursor-default"
+              >
+                <Zap size={18} />
+              </button>
+              <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                Data is live
+              </span>
+            </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -983,8 +1010,10 @@ const Dashboard = ({
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <p className="font-bold">{formatCurrency(sale.amount, profile?.currency)}</p>
-                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">{sale.paymentMethod}</p>
+                      <p className="font-bold">{formatCurrency(sale.amount + (sale.tip || 0), profile?.currency)}</p>
+                      <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">
+                        {sale.paymentMethod}{sale.tip ? ' (W/ TIP)' : ''}
+                      </p>
                     </div>
                     <button 
                       onClick={() => setEditingSale(sale)}
@@ -1110,15 +1139,15 @@ const SalesEntry = ({ onAdd, onAddCustomService, profile }: { onAdd: (sale: Omit
                     setNewCustomService(e.target.value);
                     if (error && error.includes('Service')) setError('');
                   }}
-                  maxLength={30}
+                  maxLength={50}
                 />
                 <button
                   type="button"
-                  disabled={!newCustomService.trim() || newCustomService.trim().length > 30 || services.some(s => s.toLowerCase() === newCustomService.trim().toLowerCase())}
+                  disabled={!newCustomService.trim() || newCustomService.trim().length > 50 || services.some(s => s.toLowerCase() === newCustomService.trim().toLowerCase())}
                   onClick={() => {
                     const sName = newCustomService.trim();
                     if (!sName) return;
-                    if (sName.length > 30) {
+                    if (sName.length > 50) {
                       setError("Service name is too long.");
                       return;
                     }
@@ -1309,6 +1338,11 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {profile?.plan !== 'premium' && (
+        <div className="bg-[#E6E6D6] text-[#5A5A40] px-4 py-3 rounded-2xl text-sm font-medium border border-[#C2C2A3] flex items-center justify-center">
+          Viewing last 30 days — upgrade for full history.
+        </div>
+      )}
       {error && (
         <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-sm font-medium animate-in slide-in-from-top-2">
           {error}
@@ -1373,7 +1407,37 @@ const Reports = ({ sales, profile }: { sales: Sale[], profile: UserProfile | nul
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+          <h4 className="text-lg font-serif mb-4 flex items-center justify-between">
+            <span>Busiest Days</span>
+            <span className="text-xs text-gray-400 font-sans tracking-wide">BY VOLUME</span>
+          </h4>
+          <div className="space-y-3">
+            {Object.entries(
+              filteredSales.reduce((acc, s) => {
+                if (!s.timestamp) return acc;
+                const day = format(s.timestamp.toDate(), 'EEEE');
+                acc[day] = (acc[day] || 0) + 1;
+                return acc;
+              }, {} as Record<string, number>)
+            )
+              .sort((a: [string, number], b: [string, number]) => b[1] - a[1])
+              .map(([name, count], idx) => (
+                <div key={name} className="flex items-center justify-between p-3 bg-gray-50 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-gray-400 w-4">{idx + 1}</span>
+                    <span className="font-medium">{name}</span>
+                  </div>
+                  <span className="text-sm font-bold text-[#5A5A40]">{count} cuts</span>
+                </div>
+              ))}
+            {Object.keys(filteredSales).length === 0 && (
+              <p className="text-sm text-gray-400 p-4 text-center">No sales data for this period.</p>
+            )}
+          </div>
+        </div>
+
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
           <h4 className="text-lg font-serif mb-4">Top Services</h4>
           <div className="space-y-3">
@@ -2190,11 +2254,20 @@ export default function App() {
   }, [profile]);
 
   useEffect(() => {
-    if (isUpgrading && profile?.plan === 'premium') {
-      setIsUpgrading(false);
-      setAppSuccess('Welcome to Premium! Your account has been upgraded.');
-      setActiveTab('dashboard');
+    let timeout: NodeJS.Timeout;
+    if (isUpgrading) {
+      if (profile?.plan === 'premium') {
+        setIsUpgrading(false);
+        setAppSuccess('Welcome to Premium! Your account has been upgraded.');
+        setActiveTab('dashboard');
+      } else {
+        timeout = setTimeout(() => {
+          setIsUpgrading(false);
+          setAppError("We're still processing your upgrade. Please check back in a minute. If issues persist, contact support.");
+        }, 30000);
+      }
     }
+    return () => clearTimeout(timeout);
   }, [profile?.plan, isUpgrading]);
 
   useEffect(() => {
@@ -2365,8 +2438,9 @@ export default function App() {
   const handleAddSale = async (saleData: Omit<Sale, 'id' | 'uid' | 'timestamp'>) => {
     if (!user) return;
     try {
+      const cleanData = Object.fromEntries(Object.entries(saleData).filter(([_, v]) => v !== undefined));
       await addDoc(collection(db, 'sales'), {
-        ...saleData,
+        ...cleanData,
         uid: user.uid,
         timestamp: serverTimestamp()
       });
@@ -2380,7 +2454,8 @@ export default function App() {
   const handleEditSale = async (id: string, data: Partial<Sale>) => {
     if (!user) return;
     try {
-      await updateDoc(doc(db, 'sales', id), data);
+      const cleanData = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== undefined));
+      await updateDoc(doc(db, 'sales', id), cleanData);
     } catch (err: any) {
       try { handleFirestoreError(err, OperationType.UPDATE, `sales/${id}`); }
       catch (e: any) { setAppError(e.message || "Failed to update sale"); }
@@ -2437,6 +2512,7 @@ export default function App() {
 
   const handleAddCustomService = async (serviceName: string) => {
     if (!user || !profile) return;
+    if (serviceName.length > 50) return;
     try {
       const customServices = profile.customServices || [];
       if (!customServices.includes(serviceName)) {
@@ -2665,7 +2741,11 @@ export default function App() {
         )}
         <header className="mb-8 hidden md:block">
           <h2 className="text-4xl font-serif text-[#1A1A1A] capitalize">{activeTab}</h2>
-          <p className="text-gray-400 mt-1">Manage and track your shop performance</p>
+          <p className="text-gray-400 mt-1">
+            {activeTab === 'dashboard' 
+              ? `Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${user?.email?.split('@')[0] || 'there'}! Here's how ${format(new Date(), 'MMMM do')} is looking.` 
+              : 'Manage and track your shop performance'}
+          </p>
         </header>
 
         <div className="max-w-6xl mx-auto">

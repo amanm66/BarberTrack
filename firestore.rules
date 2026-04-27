@@ -71,6 +71,15 @@ service cloud.firestore {
     // ===============================================================
 
     function isValidUser(data) {
+      let isCustomServicesValid = !('customServices' in data) || (
+        data.customServices is list && 
+        data.customServices.size() <= 50 &&
+        (data.customServices.size() == 0 || (
+          data.customServices[0] is string && 
+          data.customServices[0].size() <= 50
+        ))
+      );
+
       return hasRequiredFields(['uid', 'email', 'plan', 'createdAt']) &&
              hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince', 'weeklyGoal', 'customServices']) &&
              data.uid is string &&
@@ -79,7 +88,7 @@ service cloud.firestore {
              (!('currency' in data) || (data.currency is string && data.currency.size() == 3)) &&
              (!('premiumSince' in data) || data.premiumSince is timestamp || data.premiumSince == null) &&
              (!('weeklyGoal' in data) || (data.weeklyGoal is number && data.weeklyGoal > 0)) &&
-             (!('customServices' in data) || data.customServices is list) &&
+             isCustomServicesValid &&
              data.createdAt is timestamp;
     }
 
@@ -87,7 +96,7 @@ service cloud.firestore {
       return hasRequiredFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp']) &&
              hasOnlyAllowedFields(['uid', 'serviceType', 'paymentMethod', 'amount', 'timestamp', 'notes', 'tip']) &&
              data.uid is string &&
-             data.serviceType is string && data.serviceType.size() > 0 && data.serviceType.size() < 100 &&
+             data.serviceType is string && data.serviceType.size() > 0 && data.serviceType.size() <= 50 &&
              data.paymentMethod in ['cash', 'card'] &&
              data.amount is number && data.amount >= 0 &&
              data.timestamp is timestamp &&
@@ -110,10 +119,8 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin()) && (request.resource.data.plan == 'basic' || isAdmin());
-      allow update: if (isOwner(userId) && isValidUser(request.resource.data) && 
-                        request.resource.data.plan == resource.data.plan &&
-                        (!('premiumSince' in request.resource.data) || request.resource.data.premiumSince == resource.data.premiumSince) &&
-                        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role)) || isAdmin();
+      allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeklyGoal', 'currency', 'customServices']));
     }
 
     match /sales/{saleId} {
@@ -125,14 +132,14 @@ service cloud.firestore {
       )));
       
       allow create: if isAuthenticated() && isValidSale(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isDocOwner() && isValidSale(request.resource.data) && uidNotModified();
+      allow update: if isAuthenticated() && isDocOwner() && isValidSale(request.resource.data) && uidNotModified() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['serviceType', 'paymentMethod', 'amount', 'notes', 'tip']);
       allow delete: if isAuthenticated() && isDocOwner();
     }
 
     match /suggestions/{suggestionId} {
       allow read: if isAuthenticated() && (isAdmin() || resource.data.uid == request.auth.uid);
       allow create: if isAuthenticated() && isValidSuggestion(request.resource.data) && request.resource.data.uid == request.auth.uid;
-      allow update: if isAuthenticated() && isDocOwner() && isValidSuggestion(request.resource.data) && uidNotModified();
+      allow update: if isAuthenticated() && isDocOwner() && isValidSuggestion(request.resource.data) && uidNotModified() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['suggestion']);
       allow delete: if isAuthenticated() && isDocOwner();
     }
   }
