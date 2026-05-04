@@ -154,8 +154,8 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   const handleDemoMode = async () => {
     setError('');
     setLoading(true);
-    const demoEmail = import.meta.env.VITE_DEMO_EMAIL;
-    const demoPassword = import.meta.env.VITE_DEMO_PASSWORD;
+    const demoEmail = import.meta.env.VITE_DEMO_EMAIL || 'demo@barbersalestracker.com';
+    const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || 'demo123456';
     
     if (!demoEmail || !demoPassword) {
       setError("Demo credentials are not configured in your environment.");
