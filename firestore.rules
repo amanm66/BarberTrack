@@ -81,7 +81,7 @@ service cloud.firestore {
       );
 
       return hasRequiredFields(['uid', 'email', 'plan', 'createdAt']) &&
-             hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince', 'weeklyGoal', 'customServices']) &&
+             (resource == null ? hasOnlyAllowedFields(['uid', 'email', 'plan', 'createdAt', 'role', 'currency', 'premiumSince', 'weeklyGoal', 'customServices']) : true) &&
              data.uid is string &&
              data.email is string && isValidEmail(data.email) &&
              data.plan in ['basic', 'premium'] &&
@@ -120,7 +120,7 @@ service cloud.firestore {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin()) && (request.resource.data.plan == 'basic' || isAdmin());
       allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && 
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeklyGoal', 'currency', 'customServices']));
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeklyGoal', 'currency', 'customServices', 'plan', 'premiumSince']));
     }
 
     match /sales/{saleId} {
