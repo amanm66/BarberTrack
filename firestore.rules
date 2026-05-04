@@ -118,7 +118,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin()) && (request.resource.data.plan == 'basic' || isAdmin() || request.resource.data.email == 'demo@barbersalestracker.com');
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (!('role' in request.resource.data) || isAdmin()) && (request.resource.data.plan == 'basic' || isAdmin() || request.resource.data.email.matches('^demo.*@barbersalestracker\\\\.com$'));
       allow update: if isAdmin() || (isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && 
                         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeklyGoal', 'currency', 'customServices', 'plan', 'premiumSince']));
     }

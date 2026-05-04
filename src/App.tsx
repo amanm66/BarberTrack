@@ -154,28 +154,15 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   const handleDemoMode = async () => {
     setError('');
     setLoading(true);
-    const demoEmail = import.meta.env.VITE_DEMO_EMAIL || 'demo@barbersalestracker.com';
-    const demoPassword = import.meta.env.VITE_DEMO_PASSWORD || 'demo123456';
     
-    if (!demoEmail || !demoPassword) {
-      setError("Demo credentials are not configured in your environment.");
-      setLoading(false);
-      return;
-    }
+    // Create a new sandbox session every time to ensure fresh state
+    const timestampId = Date.now();
+    const demoEmail = `demo+${timestampId}@barbersalestracker.com`;
+    const demoPassword = `demo${timestampId}XyZ`;
     
     try {
-      let user;
-      try {
-        const userCredential = await signInWithEmailAndPassword(auth, demoEmail, demoPassword);
-        user = userCredential.user;
-      } catch (err: any) {
-        if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-          const userCredential = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
-          user = userCredential.user;
-        } else {
-          throw err;
-        }
-      }
+      const userCredential = await createUserWithEmailAndPassword(auth, demoEmail, demoPassword);
+      const user = userCredential.user;
 
       // Ensure demo user is always premium and has a profile
       await setDoc(doc(db, 'users', user.uid), {
@@ -184,67 +171,7 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
         plan: 'premium',
         currency: 'GBP',
         createdAt: serverTimestamp()
-      }, { merge: true });
-
-      // Clear existing demo sales first to ensure fresh data using a batch
-      const existingSalesQuery = query(collection(db, 'sales'), where('uid', '==', user.uid));
-      const existingSalesSnapshot = await getDocs(existingSalesQuery);
-      
-      const batches = [];
-      let currentBatch = writeBatch(db);
-      let opCount = 0;
-
-      for (const d of existingSalesSnapshot.docs) {
-        currentBatch.delete(d.ref);
-        opCount++;
-        if (opCount === 500) {
-          batches.push(currentBatch.commit());
-          currentBatch = writeBatch(db);
-          opCount = 0;
-        }
-      }
-      if (opCount > 0) {
-        batches.push(currentBatch.commit());
-      }
-      await Promise.all(batches);
-
-      // Seed fresh demo data summing to 258
-      const demoSales = [
-        { serviceType: 'Adult Haircut', amount: 10, paymentMethod: 'card', daysAgo: 0 },
-        { serviceType: 'Adult Haircut', amount: 10, paymentMethod: 'card', daysAgo: 0 },
-        { serviceType: 'Beard Trim', amount: 10, paymentMethod: 'card', daysAgo: 1 },
-        { serviceType: 'Beard Trim', amount: 10, paymentMethod: 'card', daysAgo: 1 },
-        { serviceType: 'Kids Haircut', amount: 10, paymentMethod: 'card', daysAgo: 2 },
-        { serviceType: 'Kids Haircut', amount: 10, paymentMethod: 'card', daysAgo: 2 },
-        { serviceType: 'Shave', amount: 10, paymentMethod: 'card', daysAgo: 3 },
-        { serviceType: 'Headshave', amount: 10, paymentMethod: 'card', daysAgo: 3 },
-        { serviceType: 'Hair Color', amount: 10, paymentMethod: 'card', daysAgo: 4 },
-        { serviceType: 'Adult Haircut', amount: 16, paymentMethod: 'card', daysAgo: 4 },
-        { serviceType: 'Adult Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 5 },
-        { serviceType: 'Adult Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 5 },
-        { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 6 },
-        { serviceType: 'Beard Trim', amount: 15, paymentMethod: 'cash', daysAgo: 6 },
-        { serviceType: 'Kids Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 7 },
-        { serviceType: 'Kids Haircut', amount: 15, paymentMethod: 'cash', daysAgo: 7 },
-        { serviceType: 'Shave', amount: 15, paymentMethod: 'cash', daysAgo: 8 },
-        { serviceType: 'Headshave', amount: 15, paymentMethod: 'cash', daysAgo: 8 },
-        { serviceType: 'Hair Color', amount: 15, paymentMethod: 'cash', daysAgo: 9 },
-        { serviceType: 'Adult Haircut', amount: 17, paymentMethod: 'cash', daysAgo: 9 },
-      ];
-
-      const demoBatch = writeBatch(db);
-      for (const s of demoSales) {
-        const timestamp = Timestamp.fromDate(subDays(new Date(), s.daysAgo));
-        const newSaleRef = doc(collection(db, 'sales'));
-        demoBatch.set(newSaleRef, {
-          uid: user.uid,
-          serviceType: s.serviceType,
-          amount: s.amount,
-          paymentMethod: s.paymentMethod,
-          timestamp
-        });
-      }
-      await demoBatch.commit();
+      });
 
       onAuthSuccess();
     } catch (err: any) {
@@ -2272,7 +2199,14 @@ export default function App() {
 
   useEffect(() => {
     const handleEmailLinkSignIn = async () => {
-      if (isSignInWithEmailLink(auth, window.location.href) && !emailLinkProcessed.current) {
+      if (isSignInWithEmailLink(auth, window.location.href)) {
+        if (emailLinkProcessed.current) {
+          // Already processed, just make sure loaders are off
+          setIsProcessingLink(false);
+          setLoading(false);
+          return;
+        }
+        
         emailLinkProcessed.current = true;
         let email = window.localStorage.getItem('emailForSignIn');
         
