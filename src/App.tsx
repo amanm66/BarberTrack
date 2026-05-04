@@ -154,8 +154,8 @@ const Auth = ({ onAuthSuccess }: { onAuthSuccess: () => void }) => {
   const handleDemoMode = async () => {
     setError('');
     setLoading(true);
-    const demoEmail = (import.meta as any).env.VITE_DEMO_EMAIL;
-    const demoPassword = (import.meta as any).env.VITE_DEMO_PASSWORD;
+    const demoEmail = import.meta.env.VITE_DEMO_EMAIL;
+    const demoPassword = import.meta.env.VITE_DEMO_PASSWORD;
     
     if (!demoEmail || !demoPassword) {
       setError("Demo credentials are not configured in your environment.");
@@ -713,7 +713,7 @@ const Dashboard = ({
 
   const [sendingSummary, setSendingSummary] = useState(false);
   const handleSendDailySummary = async () => {
-    const web3formsKey = (import.meta as any).env.VITE_WEB3FORMS_ACCESS_KEY;
+    const web3formsKey = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY;
     if (!web3formsKey) {
       if (onError) onError("Email sending is not configured.");
       return;
@@ -1663,7 +1663,7 @@ const Suggestions = ({ profile }: { profile: UserProfile | null }) => {
       });
 
       // 2. Trigger free email via Web3Forms
-      const web3formsKey = (import.meta as any).env.VITE_WEB3FORMS_ACCESS_KEY;
+      const web3formsKey = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY;
       if (web3formsKey) {
         await fetch('https://api.web3forms.com/submit', {
           method: 'POST',
